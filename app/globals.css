@@ -72,6 +72,9 @@ h1 { margin: 16px 0 10px; font-size: clamp(2.2rem, 7vw, 4.7rem); line-height: 1.
 .shift { justify-self: end; padding-right: 14px; display: flex; align-items: center; gap: 9px; color: #91aa9e; font-family: var(--font-system-mono), monospace; }
 .shift small { padding-left: 5px; }
 .shift button { color: #6d8178; }
+.audio-level { display: flex; align-items: center; gap: 7px; color: #5f756b; font-size: .6rem; letter-spacing: .06em; }
+.audio-level input { width: 72px; height: 3px; accent-color: #8cac9d; cursor: pointer; }
+.audio-level input:focus-visible { outline: 1px solid #91b7a6; outline-offset: 4px; }
 .online-dot { width: 7px; height: 7px; background: #70c696; border-radius: 50%; box-shadow: 0 0 9px #70c696; }
 
 .incident-rail { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid #263a33; background: #0a1412; }
@@ -254,6 +257,8 @@ h1 { margin: 16px 0 10px; font-size: clamp(2.2rem, 7vw, 4.7rem); line-height: 1.
   .operations { height: auto; min-height: 100vh; overflow: visible; grid-template-columns: 1fr; grid-template-rows: auto; }
   .ops-header { position: sticky; top: 0; z-index: 20; height: 64px; grid-column: 1; }
   .agency span, .shift small { display: none; }
+  .audio-level span { display: none; }
+  .audio-level input { width: 54px; }
   .clock { min-width: 110px; }
   .clock strong { font-size: 1.3rem; }
   .incident-rail { display: none; }
@@ -264,6 +269,7 @@ h1 { margin: 16px 0 10px; font-size: clamp(2.2rem, 7vw, 4.7rem); line-height: 1.
   .agency b { font-size: .8rem; }
   .agency svg { display: none; }
   .shift { padding-right: 5px; font-size: 0; }
+  .audio-level { display: none; }
   .online-dot { display: none; }
   .evidence-layout { grid-template-columns: 1fr; }
   .evidence-list { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid #263a33; }

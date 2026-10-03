@@ -13,6 +13,7 @@ import { JUDGEMENT_LABELS } from '@/data/messages';
 import { getReportScene } from '@/data/report-scenes';
 import type { EvidenceKind, GameState, Judgement } from '@/data/types';
 import { canUseJudgement, clearSave, createInitialState, judgeIncident, loadState, markEvidenceViewed, openIncident, persistState } from '@/lib/game-engine';
+import { createHorrorAudio, destroyHorrorAudio, playHorrorSfx, setHorrorIntensity, setHorrorVolume, type HorrorAudioRig, type HorrorSfx } from '@/lib/horror-audio';
 
 declare global {
   interface Document {
@@ -193,8 +194,9 @@ export function GameApp() {
   const [tutorialStage, setTutorialStage] = useState<number | null>(null);
   const [reportInterlude, setReportInterlude] = useState<{ incidentId: string; judgement: Judgement; nextState: GameState } | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundVolume, setSoundVolume] = useState(0.42);
   const stateRef = useRef<GameState | null>(null);
-  const audioRef = useRef<{ context: AudioContext; oscillators: OscillatorNode[] } | null>(null);
+  const audioRef = useRef<HorrorAudioRig | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setSaved(loadState()); setHydrated(true); }, 0);
@@ -206,40 +208,34 @@ export function GameApp() {
   const stopAmbient = useCallback(() => {
     const rig = audioRef.current;
     if (!rig) return;
-    rig.oscillators.forEach((oscillator) => { try { oscillator.stop(); } catch { /* already stopped */ } });
-    void rig.context.close().catch(() => undefined);
+    destroyHorrorAudio(rig);
     audioRef.current = null;
     setSoundEnabled(false);
   }, []);
 
+  const playSound = useCallback((sound: HorrorSfx) => {
+    const rig = audioRef.current;
+    if (rig) playHorrorSfx(rig, sound);
+  }, []);
+
   const toggleAmbient = useCallback(() => {
     if (audioRef.current) { stopAmbient(); return; }
-    const context = new AudioContext();
-    const gain = context.createGain();
-    const filter = context.createBiquadFilter();
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.018, context.currentTime + 0.8);
-    filter.type = 'lowpass';
-    filter.frequency.value = 150;
-    filter.Q.value = 2.5;
-    filter.connect(gain);
-    gain.connect(context.destination);
-    const low = context.createOscillator();
-    low.type = 'sine';
-    low.frequency.value = 46;
-    const machine = context.createOscillator();
-    machine.type = 'triangle';
-    machine.frequency.value = 61;
-    low.connect(filter);
-    machine.connect(filter);
-    low.start();
-    machine.start();
-    void context.resume().catch(() => undefined);
-    audioRef.current = { context, oscillators: [low, machine] };
+    const rig = createHorrorAudio(soundVolume);
+    audioRef.current = rig;
+    setHorrorIntensity(rig, stateRef.current?.anomalyLevel ?? 0);
+    playHorrorSfx(rig, 'power');
     setSoundEnabled(true);
-  }, [stopAmbient]);
+  }, [soundVolume, stopAmbient]);
 
   useEffect(() => () => stopAmbient(), [stopAmbient]);
+  useEffect(() => {
+    const rig = audioRef.current;
+    if (rig && state) setHorrorIntensity(rig, state.anomalyLevel);
+  }, [state?.anomalyLevel]);
+  useEffect(() => {
+    const rig = audioRef.current;
+    if (rig && state?.phase === 'ending') playHorrorSfx(rig, 'ending');
+  }, [state?.phase]);
 
   const currentIncident = useMemo(() => getIncident(state?.currentIncidentId ?? null), [state?.currentIncidentId]);
   const visibleTabs = useMemo(() => EVIDENCE_TABS.filter((tab) => currentIncident?.evidence.some((item) => item.kind === tab.kind)), [currentIncident]);
@@ -247,10 +243,11 @@ export function GameApp() {
 
   useEffect(() => {
     if (!state?.flags.glitchActive) return;
+    playSound('glitch');
     const startTimer = window.setTimeout(() => setShowGlitch(true), 0);
     const timer = window.setTimeout(() => setShowGlitch(false), 900);
     return () => { window.clearTimeout(startTimer); window.clearTimeout(timer); };
-  }, [state?.currentIncidentId, state?.flags.glitchActive]);
+  }, [playSound, state?.currentIncidentId, state?.flags.glitchActive]);
 
   const beginNew = useCallback(() => { const next = openIncident(createInitialState()); setState(next); setSaved(next); setSelectedEvidence(null); setShowPrologue(false); setTutorialStage(0); setReportInterlude(null); }, []);
   const startNew = useCallback(() => { setShowPrologue(true); }, []);
@@ -289,15 +286,16 @@ export function GameApp() {
   if (!hydrated) return <main className="boot-screen" aria-label="起動中" />;
   if (showPrologue && !state) return <PrologueScreen onStart={beginNew} onBack={() => setShowPrologue(false)} />;
   if (!state) return <TitleScreen saved={saved} onNew={startNew} onContinue={continueGame} onReset={() => { clearSave(); setSaved(null); }} />;
-  if (reportInterlude) return <ReportInterlude incidentId={reportInterlude.incidentId} judgement={reportInterlude.judgement} protocolUnlocked={Boolean(reportInterlude.nextState.flags.recordBreakReady)} onContinue={() => { setState(reportInterlude.nextState); setSelectedEvidence(null); setReportInterlude(null); }} />;
+  if (reportInterlude) return <ReportInterlude incidentId={reportInterlude.incidentId} judgement={reportInterlude.judgement} protocolUnlocked={Boolean(reportInterlude.nextState.flags.recordBreakReady)} onContinue={() => { playSound(reportInterlude.nextState.phase === 'ending' ? 'ui' : 'incoming'); setState(reportInterlude.nextState); setSelectedEvidence(null); setReportInterlude(null); }} />;
   if (state.phase === 'ending') return <EndingScreen state={state} onTitle={returnTitle} />;
   if (!currentIncident) return null;
 
-  const viewEvidence = (id: string) => { setSelectedEvidence(id); setState((old) => old ? markEvidenceViewed(old, id) : old); };
+  const viewEvidence = (id: string) => { playSound('evidence'); setSelectedEvidence(id); setState((old) => old ? markEvidenceViewed(old, id) : old); };
   const confirmJudgement = () => {
     if (!pendingJudgement) return;
     const judgement = pendingJudgement;
     const nextState = judgeIncident(state, judgement);
+    playSound(nextState.flags.recordBreakReady && !state.flags.recordBreakReady ? 'unlock' : 'report');
     setReportInterlude({ incidentId: currentIncident.id, judgement, nextState });
     setTutorialStage(null);
     setPendingJudgement(null);
@@ -314,7 +312,7 @@ export function GameApp() {
       <header className="ops-header">
         <div className="agency"><ScanEye /><div><b>特異事象監視室</b><span>市危機管理局・夜間監視系</span></div></div>
         <div className="clock"><span>CURRENT TIME</span><strong>{state.currentTime}</strong></div>
-        <div className="shift"><span className="online-dot" /> 勤務中 <small>ID 00-714</small><Button variant="ghost" size="icon-sm" aria-label={soundEnabled ? '環境音をオフ' : '環境音をオン'} title={soundEnabled ? '環境音 OFF' : '環境音 ON'} onClick={toggleAmbient}>{soundEnabled ? <Volume2 /> : <VolumeX />}</Button><Button variant="ghost" size="icon-sm" aria-label="タイトルへ戻る" onClick={returnTitle}><LogOut /></Button></div>
+        <div className="shift"><span className="online-dot" /> 勤務中 <small>ID 00-714</small>{soundEnabled && <label className="audio-level" title={`音量 ${Math.round(soundVolume * 100)}%`}><span>音量</span><input type="range" min="0.08" max="0.8" step="0.02" value={soundVolume} aria-label="BGMと効果音の音量" onChange={(event) => { const volume = Number(event.target.value); setSoundVolume(volume); if (audioRef.current) setHorrorVolume(audioRef.current, volume); }} /></label>}<Button variant="ghost" size="icon-sm" aria-label={soundEnabled ? 'BGMと効果音をオフ' : 'BGMと効果音をオン'} title={soundEnabled ? 'サウンド OFF' : 'サウンド ON'} onClick={toggleAmbient}>{soundEnabled ? <Volume2 /> : <VolumeX />}</Button><Button variant="ghost" size="icon-sm" aria-label="タイトルへ戻る" onClick={returnTitle}><LogOut /></Button></div>
       </header>
 
       <aside className="incident-rail">
@@ -384,7 +382,7 @@ export function GameApp() {
           </dl>
         </details>
         <div className="judgement-grid">
-          {currentIncident.allowedJudgements.filter((choice) => canUseJudgement(state, choice)).map((choice) => <button key={choice} className={`judgement judgement-${choice}`} onClick={() => setPendingJudgement(choice)}><span>{JUDGEMENT_LABELS[choice]}</span><small>{choice === 'normal' ? '異常性なし' : choice === 'observe' ? '監視継続' : choice === 'police' ? '実働対応' : choice === 'anomaly' ? '特異事案登録' : '全記録削除'}</small></button>)}
+          {currentIncident.allowedJudgements.filter((choice) => canUseJudgement(state, choice)).map((choice) => <button key={choice} className={`judgement judgement-${choice}`} onClick={() => { playSound('judgement'); setPendingJudgement(choice); }}><span>{JUDGEMENT_LABELS[choice]}</span><small>{choice === 'normal' ? '異常性なし' : choice === 'observe' ? '監視継続' : choice === 'police' ? '実働対応' : choice === 'anomaly' ? '特異事案登録' : '全記録削除'}</small></button>)}
         </div>
         {processedCount > 0 && <details className="judgement-history">
           <summary>判定履歴 <span>{processedCount}件</span></summary>
